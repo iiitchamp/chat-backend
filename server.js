@@ -10,7 +10,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-const JWT_SECRET = 'your_secret_key';
+const JWT_SECRET = '904bfa5f239145e92d1b4f97dff28adc';
 
 // MongoDB Connection
 mongoose.connect('your_mongoDB_connection_string', { useNewUrlParser: true, useUnifiedTopology: true });
