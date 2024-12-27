@@ -13,7 +13,7 @@ const io = new Server(server, { cors: { origin: '*' } });
 const JWT_SECRET = '904bfa5f239145e92d1b4f97dff28adc';
 
 // MongoDB Connection
-mongoose.connect('mongodb+srv://collab2rajesh:Champion@1685@cluster0.o7g0j.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', { useNewUrlParser: true, useUnifiedTopology: true });
+mongoose.connect('mongodb+srv://collab2rajesh:Champion%401685@cluster0.o7g0j.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', { useNewUrlParser: true, useUnifiedTopology: true });
 
 // MongoDB Schemas and Models
 const UserSchema = new mongoose.Schema({
