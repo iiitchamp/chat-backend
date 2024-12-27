@@ -13,11 +13,13 @@ const io = new Server(server, { cors: { origin: '*' } });
 const JWT_SECRET = '904bfa5f239145e92d1b4f97dff28adc';
 
 // MongoDB Connection
+mongoose.connect('mongodb+srv://collab2rajesh:Champion%401685@cluster0.o7g0j.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0')
+/*
 mongoose.connect(
     'mongodb+srv://collab2rajesh:Champion%401685@cluster0.o7g0j.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0',
     { useNewUrlParser: true, useUnifiedTopology: true }
-)
-    .then(() => console.log('Connected to MongoDB'))
+)*/
+.then(() => console.log('Connected to MongoDB'))
     .catch((error) => {
         console.error('Error connecting to MongoDB:', error.message);
         process.exit(1); // Exit the process if MongoDB connection fails
