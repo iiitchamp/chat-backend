@@ -40,29 +40,24 @@ app.use(express.static("public"));
 const activeUsers = new Map();
 const chatHistory = new Map();
 
+// WebRTC signaling for video calls
+const groupCallParticipants = new Set();
+
 // Socket.IO setup
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
 
   // Store the user in the active users map
   activeUsers.set(socket.id, `Guest-${socket.id.slice(0, 5)}`);
-
-  // Broadcast updated user list
   io.emit("userList", Array.from(activeUsers.values()));
 
-  // Anonymous Group Chat
+  // Group chat message handling
   socket.on("chatMessage", (data) => {
     const sender = activeUsers.get(socket.id) || "Anonymous";
     io.emit("chatMessage", { sender, message: data.message });
   });
 
-  // Set username after login
-  socket.on("setUsername", (username) => {
-    activeUsers.set(socket.id, username);
-    io.emit("userList", Array.from(activeUsers.values()));
-  });
-
-  // User-specific messaging
+  // Private messaging
   socket.on("privateMessage", (data) => {
     const { targetUsername, message } = data;
     const sender = activeUsers.get(socket.id);
@@ -71,10 +66,6 @@ io.on("connection", (socket) => {
     )?.[0];
 
     if (targetSocketId) {
-      const key = [sender, targetUsername].sort().join("-");
-      if (!chatHistory.has(key)) chatHistory.set(key, []);
-      chatHistory.get(key).push({ sender, message });
-
       io.to(targetSocketId).emit("privateMessage", { sender, message });
       socket.emit("privateMessage", { sender, message });
     } else {
@@ -82,24 +73,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Fetch private chat history
-  socket.on("fetchPrivateChat", ({ username, targetUsername }) => {
-    const key = [username, targetUsername].sort().join("-");
-    const history = chatHistory.get(key) || [];
-    socket.emit("privateChatHistory", { targetUsername, chatHistory: history });
-  });
-
   // WebRTC signaling for video calls
-  socket.on("callUser", ({ targetUsername, offer }) => {
-    const targetSocketId = [...activeUsers.entries()].find(
-      ([, username]) => username === targetUsername
-    )?.[0];
-
-    if (targetSocketId) {
-      io.to(targetSocketId).emit("callUser", { from: socket.id, offer });
-    } else {
-      socket.emit("errorMessage", { error: "User not available for call" });
-    }
+  socket.on("callUser", ({ targetSocketId, offer }) => {
+    io.to(targetSocketId).emit("callUser", { from: socket.id, offer });
   });
 
   socket.on("answerCall", ({ to, answer }) => {
@@ -110,11 +86,44 @@ io.on("connection", (socket) => {
     io.to(to).emit("iceCandidate", { from: socket.id, candidate });
   });
 
+  // Group call signaling
+  socket.on("joinGroupCall", () => {
+    groupCallParticipants.add(socket.id);
+    io.emit("groupCallParticipants", Array.from(groupCallParticipants));
+  });
+
+  socket.on("leaveGroupCall", () => {
+    groupCallParticipants.delete(socket.id);
+    io.emit("groupCallParticipants", Array.from(groupCallParticipants));
+  });
+
+  socket.on("groupCallOffer", ({ offer }) => {
+    groupCallParticipants.forEach((participantId) => {
+      if (participantId !== socket.id) {
+        io.to(participantId).emit("groupCallOffer", { from: socket.id, offer });
+      }
+    });
+  });
+
+  socket.on("groupCallAnswer", ({ to, answer }) => {
+    io.to(to).emit("groupCallAnswer", { from: socket.id, answer });
+  });
+
+  socket.on("groupIceCandidate", ({ candidate }) => {
+    groupCallParticipants.forEach((participantId) => {
+      if (participantId !== socket.id) {
+        io.to(participantId).emit("groupIceCandidate", { from: socket.id, candidate });
+      }
+    });
+  });
+
   // Handle user disconnect
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
     activeUsers.delete(socket.id);
+    groupCallParticipants.delete(socket.id);
     io.emit("userList", Array.from(activeUsers.values()));
+    io.emit("groupCallParticipants", Array.from(groupCallParticipants));
   });
 });
 
