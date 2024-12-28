@@ -36,9 +36,9 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
-// Active users and room details
+// Active users and chat history
 const activeUsers = new Map();
-const rooms = new Map(); // Tracks participants in group calls
+const chatHistory = new Map();
 
 // Socket.IO setup
 io.on("connection", (socket) => {
@@ -50,20 +50,53 @@ io.on("connection", (socket) => {
   // Broadcast updated user list
   io.emit("userList", Array.from(activeUsers.values()));
 
+  // Anonymous Group Chat
+  socket.on("chatMessage", (data) => {
+    const sender = activeUsers.get(socket.id) || "Anonymous";
+    io.emit("chatMessage", { sender, message: data.message });
+  });
+
   // Set username after login
   socket.on("setUsername", (username) => {
     activeUsers.set(socket.id, username);
     io.emit("userList", Array.from(activeUsers.values()));
   });
 
-  // WebRTC signaling for private calls
+  // User-specific messaging
+  socket.on("privateMessage", (data) => {
+    const { targetUsername, message } = data;
+    const sender = activeUsers.get(socket.id);
+    const targetSocketId = [...activeUsers.entries()].find(
+      ([, username]) => username === targetUsername
+    )?.[0];
+
+    if (targetSocketId) {
+      const key = [sender, targetUsername].sort().join("-");
+      if (!chatHistory.has(key)) chatHistory.set(key, []);
+      chatHistory.get(key).push({ sender, message });
+
+      io.to(targetSocketId).emit("privateMessage", { sender, message });
+      socket.emit("privateMessage", { sender, message });
+    } else {
+      socket.emit("errorMessage", { error: "User not found" });
+    }
+  });
+
+  // Fetch private chat history
+  socket.on("fetchPrivateChat", ({ username, targetUsername }) => {
+    const key = [username, targetUsername].sort().join("-");
+    const history = chatHistory.get(key) || [];
+    socket.emit("privateChatHistory", { targetUsername, chatHistory: history });
+  });
+
+  // WebRTC signaling for video calls
   socket.on("callUser", ({ targetUsername, offer }) => {
     const targetSocketId = [...activeUsers.entries()].find(
       ([, username]) => username === targetUsername
     )?.[0];
 
     if (targetSocketId) {
-      io.to(targetSocketId).emit("incomingCall", { from: socket.id, offer });
+      io.to(targetSocketId).emit("callUser", { from: socket.id, offer });
     } else {
       socket.emit("errorMessage", { error: "User not available for call" });
     }
@@ -77,55 +110,15 @@ io.on("connection", (socket) => {
     io.to(to).emit("iceCandidate", { from: socket.id, candidate });
   });
 
-  // WebRTC signaling for group calls
-  socket.on("joinGroupCall", ({ roomName }) => {
-    if (!rooms.has(roomName)) {
-      rooms.set(roomName, []);
-    }
-    const participants = rooms.get(roomName);
-    participants.push(socket.id);
-    rooms.set(roomName, participants);
-
-    // Notify all participants about the new joiner
-    participants.forEach((participant) => {
-      if (participant !== socket.id) {
-        io.to(participant).emit("newParticipant", { from: socket.id });
-      }
-    });
-  });
-
-  socket.on("leaveGroupCall", ({ roomName }) => {
-    const participants = rooms.get(roomName) || [];
-    rooms.set(roomName, participants.filter((id) => id !== socket.id));
-  });
-
-  socket.on("groupCallSignal", ({ roomName, signalData }) => {
-    const participants = rooms.get(roomName) || [];
-    participants.forEach((participant) => {
-      if (participant !== socket.id) {
-        io.to(participant).emit("groupCallSignal", {
-          from: socket.id,
-          signalData,
-        });
-      }
-    });
-  });
-
   // Handle user disconnect
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
     activeUsers.delete(socket.id);
-
-    // Remove user from any group calls
-    for (const [roomName, participants] of rooms.entries()) {
-      rooms.set(roomName, participants.filter((id) => id !== socket.id));
-    }
-
     io.emit("userList", Array.from(activeUsers.values()));
   });
 });
 
-// Authentication routes
+// User Authentication Routes
 app.post("/register", async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password)
