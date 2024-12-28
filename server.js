@@ -43,7 +43,7 @@ const activeUsers = new Map();
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
 
-  // Store the user in the active users map (anonymous by default)
+  // Store the user in the active users map
   activeUsers.set(socket.id, `Guest-${socket.id.slice(0, 5)}`);
 
   // Broadcast updated user list
@@ -69,7 +69,7 @@ io.on("connection", (socket) => {
     )?.[0];
 
     if (targetSocketId) {
-      io.to(targetSocketId).emit("chatMessage", {
+      io.to(targetSocketId).emit("privateMessage", {
         sender: activeUsers.get(socket.id),
         message,
       });
@@ -79,20 +79,24 @@ io.on("connection", (socket) => {
   });
 
   // WebRTC signaling for video calls
-  socket.on("joinVideoCall", () => {
-    socket.broadcast.emit("userJoined", socket.id);
+  socket.on("callUser", ({ targetUsername, offer }) => {
+    const targetSocketId = [...activeUsers.entries()].find(
+      ([, username]) => username === targetUsername
+    )?.[0];
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("callUser", { from: socket.id, offer });
+    } else {
+      socket.emit("errorMessage", { error: "User not available for call" });
+    }
   });
 
-  socket.on("offer", (data) => {
-    io.to(data.to).emit("offer", { userId: socket.id, offer: data.offer });
+  socket.on("answerCall", ({ to, answer }) => {
+    io.to(to).emit("callAnswered", { from: socket.id, answer });
   });
 
-  socket.on("answer", (data) => {
-    io.to(data.to).emit("answer", { userId: socket.id, answer: data.answer });
-  });
-
-  socket.on("iceCandidate", (data) => {
-    io.to(data.to).emit("iceCandidate", { userId: socket.id, candidate: data.candidate });
+  socket.on("iceCandidate", ({ to, candidate }) => {
+    io.to(to).emit("iceCandidate", { from: socket.id, candidate });
   });
 
   // Handle user disconnect
@@ -100,10 +104,6 @@ io.on("connection", (socket) => {
     console.log("User disconnected:", socket.id);
     activeUsers.delete(socket.id);
     io.emit("userList", Array.from(activeUsers.values()));
-    socket.broadcast.emit("chatMessage", {
-      sender: "System",
-      message: `${activeUsers.get(socket.id) || "A user"} has left the chat.`,
-    });
   });
 });
 
