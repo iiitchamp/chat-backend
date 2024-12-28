@@ -38,28 +38,31 @@ app.use(express.static("public"));
 
 // Active users and chat history
 const activeUsers = new Map();
-const privateChats = new Map(); // { user1: { user2: [messages] }, ... }
+const chatHistory = new Map();
 
 // Socket.IO setup
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
 
+  // Store the user in the active users map
   activeUsers.set(socket.id, `Guest-${socket.id.slice(0, 5)}`);
+
+  // Broadcast updated user list
   io.emit("userList", Array.from(activeUsers.values()));
 
-  // Handle group chat messages
+  // Anonymous Group Chat
   socket.on("chatMessage", (data) => {
     const sender = activeUsers.get(socket.id) || "Anonymous";
     io.emit("chatMessage", { sender, message: data.message });
   });
 
-  // Set username
+  // Set username after login
   socket.on("setUsername", (username) => {
     activeUsers.set(socket.id, username);
     io.emit("userList", Array.from(activeUsers.values()));
   });
 
-  // Handle private messaging
+  // User-specific messaging
   socket.on("privateMessage", (data) => {
     const { targetUsername, message } = data;
     const sender = activeUsers.get(socket.id);
@@ -68,23 +71,12 @@ io.on("connection", (socket) => {
     )?.[0];
 
     if (targetSocketId) {
-      // Store the message
-      if (!privateChats.has(sender)) privateChats.set(sender, {});
-      if (!privateChats.has(targetUsername))
-        privateChats.set(targetUsername, {});
+      const key = [sender, targetUsername].sort().join("-");
+      if (!chatHistory.has(key)) chatHistory.set(key, []);
+      chatHistory.get(key).push({ sender, message });
 
-      const senderChats = privateChats.get(sender);
-      const targetChats = privateChats.get(targetUsername);
-
-      if (!senderChats[targetUsername]) senderChats[targetUsername] = [];
-      if (!targetChats[sender]) targetChats[sender] = [];
-
-      const chatMessage = { sender, message };
-      senderChats[targetUsername].push(chatMessage);
-      targetChats[sender].push(chatMessage);
-
-      // Emit the private message
-      io.to(targetSocketId).emit("privateMessage", chatMessage);
+      io.to(targetSocketId).emit("privateMessage", { sender, message });
+      socket.emit("privateMessage", { sender, message });
     } else {
       socket.emit("errorMessage", { error: "User not found" });
     }
@@ -92,9 +84,9 @@ io.on("connection", (socket) => {
 
   // Fetch private chat history
   socket.on("fetchPrivateChat", ({ username, targetUsername }) => {
-    const chatHistory =
-      (privateChats.get(username) && privateChats.get(username)[targetUsername]) || [];
-    socket.emit("privateChatHistory", { targetUsername, chatHistory });
+    const key = [username, targetUsername].sort().join("-");
+    const history = chatHistory.get(key) || [];
+    socket.emit("privateChatHistory", { targetUsername, chatHistory: history });
   });
 
   // WebRTC signaling for video calls
@@ -118,16 +110,7 @@ io.on("connection", (socket) => {
     io.to(to).emit("iceCandidate", { from: socket.id, candidate });
   });
 
-  // Handle group calls
-  socket.on("startGroupCall", () => {
-    io.emit("groupCallStarted");
-  });
-
-  socket.on("endGroupCall", () => {
-    io.emit("groupCallEnded");
-  });
-
-  // Handle disconnect
+  // Handle user disconnect
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
     activeUsers.delete(socket.id);
